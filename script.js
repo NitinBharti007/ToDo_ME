@@ -34,8 +34,7 @@ class TaskManager {
             }).catch(error => {
                 console.error('Error requesting notification permission:', error);
             });
-        }
-
+        } 
         // Check for overdue tasks every minute
         setInterval(() => this.checkOverdueTasks(), 60000);
     }
