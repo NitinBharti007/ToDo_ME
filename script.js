@@ -9,6 +9,7 @@ class Task {
         this.completed = false;
         this.id = Date.now().toString();
         this.createdAt = new Date().toISOString();
+        this.notified = false;
     }
 }
 
@@ -18,6 +19,179 @@ class TaskManager {
         this.tasks = [];
         this.loadTasks();
         this.setupEventListeners();
+        this.setupNotifications();
+        this.startOverdueCheck();
+    }
+
+    // Setup notifications
+    setupNotifications() {
+        // Request notification permission
+        if ('Notification' in window) {
+            Notification.requestPermission().then(permission => {
+                if (permission === 'granted') {
+                    console.log('Notification permission granted');
+                }
+            }).catch(error => {
+                console.error('Error requesting notification permission:', error);
+            });
+        }
+
+        // Check for overdue tasks every minute
+        setInterval(() => this.checkOverdueTasks(), 60000);
+    }
+
+    // Reset all filters
+    resetFilters() {
+        document.getElementById('filterCategory').value = 'all';
+        document.getElementById('filterPriority').value = 'all';
+        document.getElementById('searchTask').value = '';
+        this.displayTasks();
+        showToast('Filters reset successfully!', 'success');
+    }
+
+    // Open edit modal
+    openEditModal(taskId) {
+        const task = this.tasks.find(t => t.id === taskId);
+        if (!task) return;
+
+        document.getElementById('editTaskId').value = task.id;
+        document.getElementById('editTaskName').value = task.title;
+        document.getElementById('editDescription').value = task.description;
+        document.getElementById('editDeadline').value = task.dueDate;
+        document.getElementById('editPriority').value = task.priority;
+        document.getElementById('editCategory').value = task.category;
+
+        document.getElementById('editTaskModal').classList.add('show');
+    }
+
+    // Close edit modal
+    closeEditModal() {
+        document.getElementById('editTaskModal').classList.remove('show');
+    }
+
+    // Save edited task
+    saveEditedTask(e) {
+        e.preventDefault();
+        
+        const taskId = document.getElementById('editTaskId').value;
+        const task = this.tasks.find(t => t.id === taskId);
+        
+        if (task) {
+            task.title = document.getElementById('editTaskName').value;
+            task.description = document.getElementById('editDescription').value;
+            task.dueDate = document.getElementById('editDeadline').value;
+            task.priority = document.getElementById('editPriority').value;
+            task.category = document.getElementById('editCategory').value;
+            
+            this.saveTasks();
+            this.displayTasks();
+            this.closeEditModal();
+            showToast('Task updated successfully!', 'success');
+        }
+    }
+
+    // Start checking for overdue tasks
+    startOverdueCheck() {
+        // Check every 10 seconds
+        setInterval(() => this.checkOverdueTasks(), 10000);
+    }
+
+    // Check for overdue tasks and show notifications
+    checkOverdueTasks() {
+        const now = new Date();
+        let hasOverdueTasks = false;
+        
+        this.tasks.forEach(task => {
+            if (!task.completed && !task.notified) {
+                const deadline = new Date(task.dueDate);
+                if (deadline <= now) {
+                    console.log('Found overdue task:', task.title);
+                    this.showOverdueNotification(task);
+                    task.notified = true;
+                    hasOverdueTasks = true;
+                }
+            }
+        });
+
+        if (hasOverdueTasks) {
+            this.saveTasks();
+            this.displayTasks(); // Update the display to show overdue status
+        }
+    }
+
+    // Play notification sound
+    playNotificationSound() {
+        // Create a more noticeable sound
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        // Set a much louder volume
+        gainNode.gain.value = 1.0; // Maximum volume
+        
+        // Play a more attention-grabbing alarm tone
+        oscillator.type = 'sine';
+        // First beep
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.1);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.2);
+        // Second beep
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.4);
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.5);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.6);
+        // Third beep
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.8);
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.9);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 1.0);
+        
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 1.2);
+    }
+
+    // Show notification for overdue task
+    showOverdueNotification(task) {
+        // Play the alarm sound
+        this.playNotificationSound();
+        
+        // Show browser notification
+        if ('Notification' in window && Notification.permission === 'granted') {
+            try {
+                new Notification('⚠️ TASK OVERDUE!', {
+                    body: `"${task.title}" is overdue! Please complete it as soon as possible.`,
+                    icon: 'https://cdn-icons-png.flaticon.com/512/1827/1827504.png',
+                    tag: task.id,
+                    requireInteraction: true, // Notification stays until clicked
+                    vibrate: [200, 100, 200] // Vibrate pattern for mobile devices
+                });
+            } catch (error) {
+                console.error('Error showing overdue notification:', error);
+            }
+        }
+
+        // Show visual alert with more emphasis
+        const alertDiv = document.createElement('div');
+        alertDiv.className = 'alert alert-danger alert-dismissible fade show overdue-alert';
+        alertDiv.style.position = 'fixed';
+        alertDiv.style.top = '20px';
+        alertDiv.style.right = '20px';
+        alertDiv.style.zIndex = '9999';
+        alertDiv.style.minWidth = '300px';
+        alertDiv.style.animation = 'shake 0.5s ease-in-out';
+        alertDiv.innerHTML = `
+            <strong>⚠️ Task Overdue!</strong><br>
+            "${task.title}" is overdue!<br>
+            <small>Please complete it as soon as possible.</small>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        document.body.appendChild(alertDiv);
+
+        // Auto remove after 10 seconds
+        setTimeout(() => {
+            alertDiv.remove();
+        }, 10000);
     }
 
     // Load tasks from localStorage
@@ -46,13 +220,34 @@ class TaskManager {
             priority,
             category,
             completed: false,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            notified: false
         };
 
         this.tasks.push(newTask);
         this.saveTasks();
         this.displayTasks();
         showToast('Task added successfully!', 'success');
+
+        // Schedule a check for this specific task
+        this.scheduleTaskCheck(newTask);
+    }
+
+    // Schedule a check for a specific task
+    scheduleTaskCheck(task) {
+        const deadline = new Date(task.dueDate);
+        const now = new Date();
+        const timeUntilDeadline = deadline - now;
+
+        if (timeUntilDeadline > 0) {
+            setTimeout(() => {
+                if (!task.completed && !task.notified) {
+                    this.showOverdueNotification(task);
+                    task.notified = true;
+                    this.saveTasks();
+                }
+            }, timeUntilDeadline);
+        }
     }
 
     // Delete a task
@@ -171,10 +366,10 @@ class TaskManager {
 
         filteredTasks.forEach(task => {
             const taskElement = document.createElement('div');
-            taskElement.className = `task-item ${task.completed ? 'completed' : ''} priority-${task.priority}`;
-            
             const deadline = new Date(task.dueDate);
             const isOverdue = !task.completed && deadline < new Date();
+            
+            taskElement.className = `task-item ${task.completed ? 'completed' : ''} priority-${task.priority} ${isOverdue ? 'overdue' : ''}`;
             
             taskElement.innerHTML = `
                 <div class="task-header">
@@ -183,6 +378,9 @@ class TaskManager {
                         <h6 class="task-title">${task.title}</h6>
                     </div>
                     <div class="task-actions">
+                        <button class="btn-edit" onclick="taskManager.openEditModal('${task.id}')">
+                            <i class="bi bi-pencil"></i>
+                        </button>
                         <button class="btn-complete" onclick="taskManager.toggleTaskStatus('${task.id}')">
                             <i class="bi ${task.completed ? 'bi-check-circle-fill' : 'bi-circle'}"></i>
                         </button>
@@ -194,10 +392,10 @@ class TaskManager {
                 <p class="task-description">${task.description}</p>
                 <div class="task-footer">
                     <small>Created: ${new Date(task.createdAt).toLocaleDateString()}</small>
-                    <small class="${isOverdue ? 'text-danger' : ''}">
+                    <small class="${isOverdue ? 'text-danger overdue-text' : ''}">
                         <i class="bi bi-clock"></i>
                         ${deadline.toLocaleString()}
-                        ${isOverdue ? ' (Overdue)' : ''}
+                        ${isOverdue ? ' <span class="overdue-badge">OVERDUE</span>' : ''}
                     </small>
                 </div>
             `;
@@ -236,11 +434,33 @@ class TaskManager {
             });
         }
 
+        // Add filter event listeners
+        const filterCategory = document.getElementById('filterCategory');
+        const filterPriority = document.getElementById('filterPriority');
         const searchInput = document.getElementById('searchTask');
+
+        if (filterCategory) {
+            filterCategory.addEventListener('change', () => {
+                this.displayTasks();
+            });
+        }
+
+        if (filterPriority) {
+            filterPriority.addEventListener('change', () => {
+                this.displayTasks();
+            });
+        }
+
         if (searchInput) {
             searchInput.addEventListener('input', () => {
                 this.displayTasks();
             });
+        }
+
+        // Add edit form event listener
+        const editTaskForm = document.getElementById('editTaskForm');
+        if (editTaskForm) {
+            editTaskForm.addEventListener('submit', (e) => this.saveEditedTask(e));
         }
     }
 }
